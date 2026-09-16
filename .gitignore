@@ -10,3 +10,12 @@ __pycache__/
 .DS_Store
 evaluation/results/
 *.log
+
+# Local secrets and generated files
+.streamlit/secrets.toml
+.streamlit/secrets.*.toml
+!.streamlit/secrets.example.toml
+.pytest_cache/
+.coverage
+htmlcov/
+$null

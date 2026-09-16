@@ -1,95 +1,80 @@
 # UiPath Learning Companion
 
-一个基于 Streamlit 的 UiPath 学习辅助应用，用来围绕课程内容提供三类能力：
+**PE6203 · Group 5** — 面向 PE6202 UiPath 课程的中英双语学习辅助应用。
 
-1. 知识问答
-2. 操作与 Debug 指导
-3. 模拟题生成与题目讲解
+把课程知识、操作实践与练习连起来：先理解概念，再排查工作流，最后用练习检查理解。
+基于 Python、Streamlit 和 Pydantic；课程依据来自仓库中的结构化资料卡片。
 
-项目当前支持本地运行，也支持部署到 Streamlit Cloud。默认可以以预览模式运行，不调用模型；当配置好 API key 后，可以切换到真实模型调用。
+> **默认可直接运行，无需 API key。** 资料预览模式展示相关课程资料和固定示例，不生成真实 AI 回答、诊断或试题，也不判分。真实模型功能需要另行配置服务。
 
-## 功能概览
+## 功能与使用方式
 
-- 知识问答
-  - 解释概念、活动、课程知识点
-  - 支持按 Week 过滤
-  - 返回知识点、练习关联和常见误区
-- 操作与 Debug
-  - 根据当前步骤、界面状态或报错，给出下一步建议
-  - 支持两种模式：
-    - 下一步指导
-    - 问题诊断
-- 模拟题与讲解
-  - 根据主题、难度和题型生成练习题
-  - 支持提交答案后解释正确项与错误项
-  - 题目生成后标记为需人工复核，避免直接当成正式题库
-- 运行记录与导出
-  - 在页面底部保留会话内测试记录
-  - 支持导出 JSON 和 Markdown
-  - 导出内容会做敏感信息脱敏
+| 模块 | 适合什么时候用 | 主要交互 |
+| --- | --- | --- |
+| 知识问答 | 不理解概念或 Activity 的区别 | 按 Week 检索、展开资料来源、填入追问、带入练习主题 |
+| 操作与排错 | 不知道下一步，或结果与预期不同 | 分别填写预期、实际现象、报错与最近修改；按检查、修复、验证阅读建议 |
+| 练习与测验 | 希望检查自己是否理解 | 按主题、难度与题型出题，提交选项后查看讲解；生成内容需人工复核 |
+| 使用帮助 | 不知道该问什么或遇到使用问题 | 导航下方的问号入口；按当前模块提供提问模板、常见问题及一键示例 |
 
-## 技术栈
-
-- Python 3.10+
-- Streamlit 1.63
-- Pydantic 2.x
-- 标准库 `urllib` 负责 HTTP 请求
-- 本地配置读取：
-  - `.env`
-  - Streamlit Cloud 的 `Secrets`（TOML）
-
-## 项目结构
-
-```text
-app.py              # Streamlit 主应用
-launch.py           # 本地启动器，调用 streamlit run app.py
-start.ps1           # Windows 本地启动脚本
-config.py           # 配置加载，支持 .env 与 st.secrets
-llm_client.py       # 模型请求、重试、格式修复、证据约束
-runtime.py          # 运行时实验模式与事件记录
-ui_runs.py          # 测试记录、脱敏和导出
-ui_examples.py      # 页面示例数据
-ui_theme.py         # 页面样式
-modules/            # 业务逻辑
-retrieval/          # 检索与数据读取
-schemas/            # Pydantic 输出 schema
-data/               # 课程数据与卡片
-evaluation/         # 评估脚本与案例
-tests/              # 单元测试
-```
+- 中英文界面；课程原文保留原语言。
+- 深蓝紫色视觉主题、课程插画、分区卡片与清晰的表单层级。
+- 示例、追问和主题跳转仅填入内容，由使用者检查后提交。
+- 当前会话最多保留 50 条运行记录，可导出 JSON / Markdown。
 
 ## 本地运行
 
-建议使用独立虚拟环境：
+推荐 Python **3.11**，依赖版本见 `requirements.txt`。在项目根目录执行：
+
+### Windows PowerShell
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe launch.py
+```
+
+如果已经创建虚拟环境，可直接执行 `./start.ps1`。启动后打开 http://127.0.0.1:8501 。
+
+### macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
-.\start.ps1
+python -m streamlit run app.py
 ```
 
-默认访问地址：
+不要使用 `python app.py`；页面需要通过 Streamlit 启动。
 
-```text
-http://127.0.0.1:8501
-```
+## 在浏览器中运行
 
-也可以直接运行：
+### GitHub Codespaces：适合开发和临时演示
 
-```powershell
-streamlit run app.py
-```
+1. 打开本仓库，选择 **Code → Codespaces → Create codespace**。
+2. 容器将使用 Python 3.11 并安装 `requirements.txt`。
+3. 在终端执行：
 
-不要用 `python app.py` 直接启动，这个文件是 Streamlit 页面入口，不是普通命令行程序。
+   ```bash
+   python -m streamlit run app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true
+   ```
 
-## 配置
+4. 打开 **Ports** 中的 **8501** 预览。端口默认保持私有。
+5. 用完后停止 Codespace；不再需要时删除开发环境，减少计算和存储用量。
 
-### 1. 本地配置
+Codespaces 按账户额度及计费设置使用资源，不能视为永久免费的网站托管。
+仓库权限与端口访问权限分别控制，不会因为有仓库链接就自动获得应用访问权限。
 
-项目支持从仓库根目录的 `.env` 读取配置。示例文件是 `.env.example`。
+### Streamlit Community Cloud：适合提供应用链接
 
-`.env` 示例：
+见 [完整部署步骤](docs/DEPLOYMENT.md)。使用本仓库的 `main` 分支，入口为 `app.py`，Python 选择 3.11。
+初次部署保持资料预览模式；无需填写 API key。
+
+**GitHub Pages 只托管静态网页，无法直接运行本项目的 Python/Streamlit 服务。**
+GitHub Actions 用于自动检查代码，也不是长期运行网站的方式。
+
+## 启用真实模型（可选）
+
+复制 `.env.example` 为 `.env`，填入你自己的 OpenAI 兼容服务配置：
 
 ```dotenv
 MOCK_LLM=false
@@ -98,113 +83,72 @@ LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4.1-mini
 LLM_TEMPERATURE=0.0
 LLM_TIMEOUT=45
+UI_LANGUAGE=zh
 ```
 
-### 2. Streamlit Cloud 配置
+模型名称只是配置示例，需要与你的服务商实际可用模型一致。真实请求可能产生服务商费用。
+配置优先级：进程环境变量 → 根目录 `.env` → Streamlit Secrets → 默认值。
+在云端通过应用管理界面的 Secrets 配置，**不要提交 `.env` 或 `.streamlit/secrets.toml`**。
 
-Streamlit Cloud 的 Secrets 页面使用 TOML 格式。可直接填：
+## 项目结构
 
-```toml
-MOCK_LLM = false
-LLM_API_KEY = "your_api_key"
-LLM_BASE_URL = "https://api.openai.com/v1"
-LLM_MODEL = "gpt-4.1-mini"
-LLM_TEMPERATURE = 0.0
-LLM_TIMEOUT = 45
+```text
+app.py                 Streamlit 页面入口
+ui_theme.py            视觉主题与页面组件
+ui_help.py             按模块组织的双语帮助与 FAQ
+ui_learning.py         资料来源与追问辅助
+ui_debug.py            排错输入整理与必填检查
+ui_locale.py           双语文案
+ui_examples.py         示例输入与固定讲题示例
+ui_runs.py             会话记录、脱敏与导出
+config.py              环境变量、.env 与 Secrets 配置
+llm_client.py          模型请求、重试与结构化输出校验
+modules/               知识问答、操作指导、练习业务逻辑
+retrieval/             轻量关键词检索
+schemas/               Pydantic 输入输出结构
+data/                  31 个概念、20 个操作任务、9 道例题、3 张官方资料卡
+prompts/               A/B/C 提示词版本
+evaluation/            评估用例与脚本
+tests/                 单元测试和 Streamlit 交互测试
+docs/                  部署及项目说明
+.github/workflows/     自动检查
+.devcontainer/         Codespaces 开发环境
 ```
 
-### 3. 配置优先级
+## 验证与评估
 
-当前配置读取顺序是：
+在项目根目录运行：
 
-1. 本地环境变量
-2. `.env`
-3. Streamlit `st.secrets`
-
-这意味着：
-
-- 本地开发优先使用 `.env`
-- 部署到 Streamlit Cloud 时，优先使用 Cloud Secrets
-- `MOCK_LLM=true` 时进入资料预览模式，不调用模型
-- `MOCK_LLM=false` 时调用真实模型
-
-## 页面说明
-
-页面分为三个主 Tab：
-
-1. 知识问答
-2. 操作与 Debug
-3. 模拟题与讲解
-
-页面侧边栏显示当前知识库统计信息。底部“测试与导出”区域会记录当前会话里的调用结果，最多保留最近 50 条。
-
-## 模型与检索
-
-项目不是纯聊天机器人，而是“检索 + 结构化输出 + 约束校验”的学习辅助应用。
-
-- `retrieval/` 负责从课程卡片中检索相关内容
-- `llm_client.py` 负责调用模型、处理重试、做格式校验
-- `schemas/` 用 Pydantic 定义输出结构
-- `runtime.py` 记录每次请求的阶段事件
-
-模型调用使用 OpenAI 兼容的 `/chat/completions` 风格接口。默认实现会要求模型输出 JSON object，再由 schema 校验结果。
-
-## 测试与评估
-
-### 单元测试
-
-```powershell
-python -m unittest discover -s tests -v
-```
-
-### 数据检查
-
-```powershell
+```bash
 python scripts/validate_data.py
-```
-
-### 评估脚本
-
-默认只做结构检查和数据验证，不直接调用模型：
-
-```powershell
+python -m unittest discover -s tests -v
 python evaluation/run_eval.py
 ```
 
-如果要实际跑评估，需要在配置好模型后显式开启：
+默认测试和评估结构检查无需真实模型。GitHub Actions 在推送或 PR 时运行数据校验、单元测试及评估结构检查。
+只有配置模型后显式运行 `python evaluation/run_eval.py --run --variant all --allow-draft` 才会执行真实评估请求。
 
-```powershell
-python evaluation/run_eval.py --run --variant all --allow-draft
-```
+## 范围与限制
 
-## 部署到 Streamlit Cloud
+- 概念资料覆盖 Weeks 1–5，课堂操作练习覆盖 Weeks 1–4。
+- 采用轻量关键词检索，不是向量检索系统；资料不足时应补充上下文或核对原课程材料。
+- 9 道参考例题的答案仍待人工核对；生成题不代表教师原题或考试预测。
+- 当前会话记录不是持久数据库。切换语言会重置输入、结果及记录，需要时先导出。
+- 本工具提供步骤与建议，不会直接操作 UiPath Studio 或执行机器人工作流。
+- 导出会做常见字段脱敏，分享前仍需检查内容。
 
-1. 推送仓库到 GitHub
-2. 在 Streamlit Cloud 里选择这个仓库
-3. Main file path 填 `app.py`
-4. 在 Secrets 中填入模型配置
-5. `MOCK_LLM` 设为 `false` 后重启应用
+## 来源与小组成员
 
-如果仍停留在预览模式，优先检查：
+基于小组原项目 [Tonya0719/UiPath-Learning-Companion](https://github.com/Tonya0719/UiPath-Learning-Companion) 继续开发。
+本版本保留原项目历史，并加入界面、交互和上下文帮助优化。
 
-- Cloud 上是不是最新 commit
-- Secrets 是否填在当前 app 对应的 workspace
-- `MOCK_LLM` 是否仍然为 `true`
+Group 5：Fang Xinyi、Li Zihao、Miao Jiaxuan、Wang Chenyu、Wang Senmiao、Wu Yushan。
+这是学生课程项目，非 NTU 官方服务。课程资料与第三方内容的权利属于各自权利人。
+本仓库尚未指定开源许可证；上传到 GitHub 不等于授予任意再分发许可。
 
-## 安全说明
+### English summary
 
-- 不要把真实 API key 写进仓库
-- `.env` 已经在 `.gitignore` 中忽略
-- 导出日志会对常见敏感字段做脱敏，但分享前仍建议人工复核
-
-## 已知限制
-
-- 这不是完整的正式题库系统，生成题仍需要人工复核
-- 检索逻辑目前是轻量关键字检索，不是 BM25 / 向量 RAG
-- 课程数据、题目数据与官方资料卡片仍需要持续人工校对
-- 测试记录只保存在当前浏览器会话中，刷新或重启后可能丢失
-
-## 许可证
-
-未单独声明许可证时，默认按项目当前仓库约定处理。
-
+A bilingual, course-grounded UiPath learning companion for concept explanations, workflow troubleshooting and practice.
+Run `python -m pip install -r requirements.txt`, then `python -m streamlit run app.py`.
+The default preview mode needs no API key and does not generate or grade model answers.
+See [deployment instructions](docs/DEPLOYMENT.md) for Codespaces and Streamlit Community Cloud.

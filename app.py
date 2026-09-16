@@ -18,8 +18,11 @@ from ui_locale import (
     STAGE_LABELS,
     tr,
 )
-from ui_theme import apply_theme, render_footer
+from ui_theme import apply_theme, render_footer, render_header, render_sidebar_brand, render_library_counts
 from ui_runs import run_test, export_json, export_markdown
+from ui_learning import render_learning_sources, unique_evidence, followup_prompt
+from ui_debug import debug_observations, missing_debug_fields
+from ui_help import render_help
 
 
 def current_language():
@@ -36,7 +39,7 @@ ACTIVE_MODULE_KEY = 'ui_active_module'
 MODULE_STATE_KEYS = {
     'learning': ['learn_question', 'learn_week', 'learn_depth', 'learning'],
     'practice': ['build_week', 'help_mode', 'build_result', 'next_last', 'next_state',
-                 'debug_activity', 'debug_error', 'debug_change'],
+                 'debug_activity', 'debug_error', 'debug_change', 'debug_expected', 'debug_actual'],
     'generate': ['gen_topic', 'gen_difficulty', 'gen_type', 'question', 'assessment_result',
                  'example_question'],
 }
@@ -106,9 +109,9 @@ if 'ui_language' not in st.session_state:
 
 lang = current_language()
 
-st.title(tr(lang, 'title'))
-st.caption(tr(lang, 'caption'))
+render_header(lang, config.MOCK_LLM)
 with st.sidebar:
+    render_sidebar_brand(lang)
     chosen_language = st.radio(
         '界面语言' if lang == 'zh' else 'Interface language',
         options=list(LANGUAGE_LABELS),
@@ -120,9 +123,7 @@ with st.sidebar:
 
 lang = current_language()
 
-if config.MOCK_LLM:
-    st.warning(tr(lang, 'mock_warning'))
-else:
+if not config.MOCK_LLM:
     st.info(tr(lang, 'real_model_info', model=config.LLM_MODEL))
 
 
@@ -166,6 +167,12 @@ def fill_example(name):
         st.session_state.pop('assessment_result', None)
         return
     values = dict(examples[name])
+    if name == 'debug':
+        values['debug_expected'] = ('Overall 表中保留每张发票的数据。' if lang == 'zh'
+                                    else 'Keep the data from every invoice in the Overall sheet.')
+        values['debug_actual'] = ('处理多个 PDF 后，Overall 表中只保留最后一张发票的数据；流程没有报错。' if lang == 'zh'
+                                  else 'After processing multiple PDFs, Overall contains only the last invoice. The workflow reports no error.')
+        values['debug_error'] = ''
     if name in {'next_step', 'debug'}:
         values['help_mode'] = MODE_LABELS[lang][name]
     st.session_state.update(values)
@@ -177,6 +184,26 @@ def fill_example(name):
         st.session_state.pop('question', None)
         st.session_state.pop('assessment_result', None)
         st.session_state.example_question = False
+
+
+def fill_learning_prompt(prompt, week):
+    set_active_module('learning')
+    st.session_state.learn_question = prompt
+    st.session_state.learn_week = week if week is not None else tr(current_language(), 'week_any')
+    st.session_state.pop('learning', None)
+
+
+def continue_learning(question, concept, week, kind):
+    fill_learning_prompt(followup_prompt(question, concept, kind, current_language()), week)
+
+
+def practice_this_concept(concept):
+    st.session_state.gen_topic = concept[:1000]
+    st.session_state['_practice_from_learning'] = concept[:1000]
+    st.session_state.pop('question', None)
+    st.session_state.pop('assessment_result', None)
+    st.session_state.example_question = False
+    set_active_module('generate')
 
 
 def sources(evidence):
@@ -218,7 +245,7 @@ except (ValueError, OSError):
 
 with st.sidebar:
     st.header(tr(lang, 'knowledge_bank_status'))
-    st.write(tr(lang, 'counts', concept=counts['concept'], task=counts['task'], question=counts['question'], official=counts['official']))
+    render_library_counts(counts, lang)
     st.caption(tr(lang, 'review_note'))
 
 
@@ -227,72 +254,221 @@ active_module = st.radio(
     ['learning', 'practice', 'generate'],
     key=ACTIVE_MODULE_KEY,
     format_func=lambda value: {
-        'learning': tr(lang, 'tab_learning'),
-        'practice': tr(lang, 'tab_next'),
-        'generate': tr(lang, 'tab_generate'),
+        'learning': '知识问答' if lang == 'zh' else 'Learn & explain',
+        'practice': '操作与排错' if lang == 'zh' else 'Build & debug',
+        'generate': '练习与测验' if lang == 'zh' else 'Practice & assess',
     }[value],
     horizontal=True,
     label_visibility='collapsed',
+    width='stretch',
 )
 
+help_hint, help_button = st.columns([4, 1.5], vertical_alignment='center')
+with help_hint:
+    st.caption('不知道问什么，或遇到问题？点右侧问号。' if lang == 'zh'
+               else 'Not sure what to ask, or stuck? Open Help & FAQs.')
+with help_button:
+    render_help(lang, active_module, config.MOCK_LLM, fill_example)
+
 if active_module == 'learning':
-    st.button(tr(lang, 'fill_learning'), on_click=fill_example, args=('learning',))
+    st.markdown(
+        '<div class="course-intro"><div class="course-eyebrow">LEARN &amp; EXPLAIN</div>'
+        '<h2>' + ('把知识点，真正弄明白。' if lang == 'zh' else 'Build understanding, one question at a time.') + '</h2>'
+        '<p>' + ('提出你的疑问，从课程资料中寻找解释与练习联系。' if lang == 'zh'
+                  else 'Ask a question. Connect the explanation to your course materials and exercises.') + '</p></div>',
+        unsafe_allow_html=True,
+    )
+    st.caption('从一个问题开始 · 点击示例填入' if lang == 'zh' else 'Start with a question · Select an example')
+    prompts = [
+        ('DataTable 与写回' if lang == 'zh' else 'DataTable & write-back',
+         '为什么修改 DataTable 后，Google Sheets 里的内容没有变化？' if lang == 'zh'
+         else 'Why does editing a DataTable not update Google Sheets?', 2),
+        ('理解 RPA' if lang == 'zh' else 'Understanding RPA',
+         '什么是 RPA？哪些任务适合使用 RPA？' if lang == 'zh'
+         else 'What is RPA, and which tasks are suitable for it?', None),
+        ('循环与数据行' if lang == 'zh' else 'Loops & data rows',
+         'For Each Row 如何逐行处理 DataTable？' if lang == 'zh'
+         else 'How does For Each Row process a DataTable?', 2),
+    ]
+    with st.container(key='learning_examples'):
+        for col, (label, prompt, example_week) in zip(st.columns(3), prompts):
+            col.button(label, on_click=fill_learning_prompt, args=(prompt, example_week), use_container_width=True)
     with st.form('learning_form'):
-        question = st.text_area(tr(lang, 'question_label'), placeholder=tr(lang, 'question_placeholder'), max_chars=12000, key='learn_question')
+        question = st.text_area(tr(lang, 'question_label'), placeholder=tr(lang, 'question_placeholder'), height=140, max_chars=12000, key='learn_question')
         week_options = [tr(lang, 'week_any'), 1, 2, 3, 4, 5]
-        week = st.selectbox(tr(lang, 'week_label'), week_options, key='learn_week')
-        depth = st.selectbox(tr(lang, 'depth_label'), ['Brief', 'Detailed'], key='learn_depth')
-        ask = st.form_submit_button(tr(lang, 'ask_button'))
+        week_col, depth_col = st.columns(2)
+        week = week_col.selectbox(tr(lang, 'week_label'), week_options, key='learn_week')
+        depth = depth_col.selectbox(tr(lang, 'depth_label'), ['Brief', 'Detailed'], key='learn_depth',
+                                   format_func=lambda value: {'Brief': '简洁讲解', 'Detailed': '详细讲解'}[value] if lang == 'zh' else value)
+        ask = st.form_submit_button(
+            ('查看相关资料' if lang == 'zh' else 'Find course materials') if config.MOCK_LLM
+            else ('获取讲解' if lang == 'zh' else 'Explain this'), type='primary')
     if ask:
         submitted_question = st.session_state.get('learn_question', question)
-        st.session_state.learning = attempt(
-            'learning',
-            answer_concept_question,
-            question=submitted_question,
-            week=None if week == tr(lang, 'week_any') else week,
-            depth=depth,
-        )
+        if not submitted_question.strip():
+            st.warning('请先输入一个问题，或选择上方示例。' if lang == 'zh' else 'Enter a question or choose an example above.')
+        else:
+            st.session_state.learning = attempt(
+                'learning', answer_concept_question, question=submitted_question,
+                week=None if week == tr(lang, 'week_any') else week, depth=depth,
+            )
+            st.session_state['_learning_context'] = {
+                'question': submitted_question,
+                'week': None if week == tr(lang, 'week_any') else week,
+                'depth': depth,
+            }
     r = st.session_state.get('learning')
     if r:
-        status(r)
-        st.write(r.answer)
-        if r.key_concept:
-            st.caption(f"{tr(lang, 'key_concept')} {r.key_concept}")
-        if r.exercise_connection:
-            st.write(f"{tr(lang, 'exercise_connection')} {r.exercise_connection}")
-        if r.common_misunderstanding:
-            st.write(f"{tr(lang, 'common_misunderstanding')} {r.common_misunderstanding}")
-        sources(r.evidence)
+        with st.container(key='learning_answer'):
+            context = st.session_state.get('_learning_context', {})
+            if context.get('question'):
+                st.caption('本次提交的问题' if lang == 'zh' else 'Question for this result')
+                st.write(context['question'])
+                st.divider()
+            st.subheader(('相关课程资料' if lang == 'zh' else 'Related course materials') if config.MOCK_LLM
+                         else ('为你梳理的讲解' if lang == 'zh' else 'Your explanation'))
+            evidence_count = len(unique_evidence(r.evidence))
+            st.caption(f'{evidence_count} 条资料摘录可供核对' if lang == 'zh'
+                       else f'{evidence_count} source excerpts available to inspect')
+            if config.MOCK_LLM and r.status == 'ANSWERED':
+                st.caption('资料原文预览 · 不是 AI 生成的回答' if lang == 'zh'
+                           else 'Source material preview · Not an AI-generated answer')
+            else:
+                status(r)
+            st.write(r.answer)
+            if r.key_concept:
+                st.caption(f"{tr(lang, 'key_concept')} {r.key_concept}")
+            if r.exercise_connection:
+                st.markdown('#### ' + tr(lang, 'exercise_connection').rstrip('：: '))
+                st.write(r.exercise_connection)
+            if r.common_misunderstanding:
+                st.markdown('#### ' + tr(lang, 'common_misunderstanding').rstrip('：: '))
+                st.write(r.common_misunderstanding)
+            render_learning_sources(r.evidence, lang)
+        if r.status == 'ANSWERED':
+            with st.container(key='learning_next'):
+                st.markdown('### 接下来，你可以…' if lang == 'zh' else 'Keep learning')
+                st.caption('追问按钮会填入新问题；练习按钮会带入知识点。确认提交后才处理。' if lang == 'zh'
+                           else 'Follow-ups fill a new question; practice carries over the topic. Review and submit when ready.')
+                next_example, next_compare, next_practice = st.columns(3)
+                original_question = context.get('question', '')
+                next_example.button('举个例子' if lang == 'zh' else 'Show an example',
+                                    key='learn_followup_example', width='stretch',
+                                    disabled=not bool(original_question), on_click=continue_learning,
+                                    args=(original_question, r.key_concept, context.get('week'), 'example'))
+                next_compare.button('辨析易混点' if lang == 'zh' else 'Clarify differences',
+                                    key='learn_followup_compare', width='stretch',
+                                    disabled=not bool(original_question), on_click=continue_learning,
+                                    args=(original_question, r.key_concept, context.get('week'), 'compare'))
+                next_practice.button('用这个知识点练一题' if lang == 'zh' else 'Practice this concept',
+                                     key='learn_to_practice', width='stretch', disabled=not bool(r.key_concept.strip()),
+                                     on_click=practice_this_concept, args=(r.key_concept,))
+                with st.expander('先自己想一想 · 30 秒回顾' if lang == 'zh' else 'Think it through · A 30-second recap'):
+                    st.write('先不看上面的解释，用自己的话说出核心概念；再展开一条课程资料，检查是否支持你的理解。' if lang == 'zh'
+                             else 'Without looking at the explanation, describe the key idea in your own words. Then open a course source and check whether it supports your understanding.')
+    else:
+        st.markdown('<div class="learning-empty">' +
+                    ('讲解与资料来源会显示在这里。<br>可以先试试上方的示例问题。' if lang == 'zh'
+                     else 'Your explanation and sources will appear here.<br>Try one of the example questions above.') +
+                    '</div>', unsafe_allow_html=True)
 
 if active_module == 'practice':
+    st.markdown(
+        '<div class="course-intro"><div class="course-eyebrow">BUILD &amp; DEBUG</div><h2>'
+        + ('把卡住的步骤，理清楚。' if lang == 'zh' else 'Work through the step that has you stuck.')
+        + '</h2><p>' + ('选择课堂练习，再描述你目前做到哪里。' if lang == 'zh'
+                        else 'Choose your course exercise, then describe your current workflow state.') + '</p></div>',
+        unsafe_allow_html=True,
+    )
+    st.caption('先试一个示例 · 只填入内容，不自动提交' if lang == 'zh'
+               else 'Try an example · Fills the form without submitting')
     sample_next, sample_debug = st.columns(2)
-    sample_next.button(tr(lang, 'fill_next'), on_click=fill_example, args=('next_step',))
-    sample_debug.button(tr(lang, 'fill_debug'), on_click=fill_example, args=('debug',))
-    w = st.selectbox(tr(lang, 'week_select'), list(catalog), key='build_week')
-    ex = st.selectbox(tr(lang, 'exercise_select'), catalog[w], key=f'exercise_{w}')
+    sample_next.button(tr(lang, 'fill_next'), on_click=fill_example, args=('next_step',), width='stretch')
+    sample_debug.button(tr(lang, 'fill_debug'), on_click=fill_example, args=('debug',), width='stretch')
+    week_col, exercise_col = st.columns([1, 2])
+    w = week_col.selectbox(tr(lang, 'week_select'), list(catalog), key='build_week')
+    ex = exercise_col.selectbox(tr(lang, 'exercise_select'), catalog[w], key=f'exercise_{w}')
     modes = mode_options(lang)
     selected_mode = st.radio(tr(lang, 'mode_label'), modes, horizontal=True, key='help_mode')
     with st.form('practice_form'):
         if selected_mode == MODE_LABELS[lang]['next_step']:
-            last = st.text_input(tr(lang, 'last_step'), max_chars=12000, key='next_last')
-            state = st.text_area(tr(lang, 'current_state'), max_chars=12000, key='next_state')
+            st.markdown('#### 01 · 最后完成了哪一步？' if lang == 'zh' else '#### 01 · What did you finish?')
+            last = st.text_input(tr(lang, 'last_step'), max_chars=12000, key='next_last',
+                                 placeholder='例如：已配置 Use Application/Browser。' if lang == 'zh' else 'For example: configured Use Application/Browser.')
+            st.markdown('#### 02 · 现在停在哪里？' if lang == 'zh' else '#### 02 · Where are you now?')
+            state = st.text_area(tr(lang, 'current_state'), max_chars=12000, key='next_state', height=110,
+                                 placeholder='说明当前可见的界面、结果，以及还没完成的操作。' if lang == 'zh'
+                                 else 'Describe the visible screen, current result and what has not been completed.')
         else:
-            activity = st.text_input(tr(lang, 'activity_name'), max_chars=1000, key='debug_activity')
-            error = st.text_area(tr(lang, 'error_message'), max_chars=12000, key='debug_error')
-            change = st.text_input(tr(lang, 'recent_change'), max_chars=4000, key='debug_change')
-        build = st.form_submit_button(tr(lang, 'get_guidance'))
+            st.markdown('#### 01 · 想实现什么？' if lang == 'zh' else '#### 01 · What should happen?')
+            activity = st.text_input('出问题的 Activity 或步骤' if lang == 'zh' else 'Activity or step with the issue',
+                                     max_chars=1000, key='debug_activity', placeholder='例如：Write Range、For Each Row' if lang == 'zh' else 'For example: Write Range, For Each Row')
+            expected = st.text_area('预期结果（可选）' if lang == 'zh' else 'Expected result (optional)',
+                                    max_chars=1000, key='debug_expected', height=85,
+                                    placeholder='例如：每张发票的数据都追加到 Overall 表。' if lang == 'zh'
+                                    else 'For example: append each invoice to the Overall sheet.')
+            st.markdown('#### 02 · 实际发生了什么？' if lang == 'zh' else '#### 02 · What actually happened?')
+            actual = st.text_area('实际结果或异常现象' if lang == 'zh' else 'Observed result or unexpected behaviour',
+                                  max_chars=4500, key='debug_actual', height=110,
+                                  placeholder='例如：没有报错，但最后只剩一张发票的数据。' if lang == 'zh'
+                                  else 'For example: no error appears, but only the last invoice remains.')
+            st.markdown('#### 03 · 有哪些排查线索？' if lang == 'zh' else '#### 03 · What clues do you have?')
+            error = st.text_area('报错原文（没有报错可留空）' if lang == 'zh' else 'Exact error (leave blank if none)',
+                                 max_chars=6000, key='debug_error', height=85,
+                                 placeholder='粘贴完整报错，并去掉个人信息。' if lang == 'zh' else 'Paste the complete error with personal information removed.')
+            change = st.text_input(tr(lang, 'recent_change'), max_chars=4000, key='debug_change',
+                                   placeholder='例如：从处理一个文件改成循环处理多个文件。' if lang == 'zh'
+                                   else 'For example: changed from one file to a loop over multiple files.')
+            st.caption('实际结果和报错至少填写一项。只提供你观察到的事实即可。' if lang == 'zh'
+                       else 'Provide an observed result or an error message. Describe what you actually observed.')
+        build = st.form_submit_button(
+            ('查看相关资料' if lang == 'zh' else 'Find course materials') if config.MOCK_LLM
+            else (('获取下一步' if lang == 'zh' else 'Find my next step') if selected_mode == MODE_LABELS[lang]['next_step']
+                  else ('开始排查' if lang == 'zh' else 'Start troubleshooting')), type='primary')
     context = (w, ex, selected_mode)
     if build:
-        r = (
-            attempt('next_step', get_next_step, week=w, exercise=ex, last_completed_step=last, current_state=state)
-            if selected_mode == MODE_LABELS[lang]['next_step']
-            else attempt('debug', debug_workflow, week=w, exercise=ex, activity=activity, error_message=error, recent_change=change)
-        )
-        st.session_state.build_result = (context, r)
+        next_mode = selected_mode == MODE_LABELS[lang]['next_step']
+        if next_mode:
+            missing = [] if last.strip() and state.strip() else [
+                '请填写最后完成的操作和当前状态。' if lang == 'zh' else 'Enter the last completed step and the current state.']
+        else:
+            missing = missing_debug_fields(activity, actual, error, lang)
+        if missing:
+            st.session_state.pop('build_result', None)
+            for message in missing:
+                st.warning(message)
+        else:
+            inputs = dict(week=w, exercise=ex, last_completed_step=last, current_state=state) if next_mode else dict(
+                week=w, exercise=ex, activity=activity,
+                error_message=debug_observations(expected, actual, error, lang), recent_change=change)
+            r = attempt('next_step' if next_mode else 'debug', get_next_step if next_mode else debug_workflow, **inputs)
+            st.session_state.build_result = (context, r)
+            st.session_state['_practice_request'] = inputs
     stored = st.session_state.get('build_result')
     if stored and stored[0] == context and stored[1]:
         r = stored[1]
-        status(r)
+        st.divider()
+        st.subheader(('相关课程资料' if lang == 'zh' else 'Related course materials') if config.MOCK_LLM
+                     else ('下一步指导' if lang == 'zh' else 'Your next step') if selected_mode == MODE_LABELS[lang]['next_step']
+                     else ('排查建议' if lang == 'zh' else 'Troubleshooting guidance'))
+        st.caption(f'Week {w} · {ex}')
+        with st.expander('查看本次提交的情况' if lang == 'zh' else 'Review the submitted situation'):
+            submitted = st.session_state.get('_practice_request', {})
+            for field, label in [('activity', tr(lang, 'activity_name')), ('last_completed_step', tr(lang, 'last_step')),
+                                 ('current_state', tr(lang, 'current_state')), ('error_message', '情况描述' if lang == 'zh' else 'Situation'),
+                                 ('recent_change', tr(lang, 'recent_change'))]:
+                if submitted.get(field):
+                    st.markdown('**' + label + '**')
+                    st.text(submitted[field])
+        preview_messages = {tr(code, key) for code in ('zh', 'en')
+                            for key in ('demo_previews_only', 'configure_real_model_next')}
+        preview_only = config.MOCK_LLM and r.status == 'NEED_MORE_INFORMATION' and any(
+            note in preview_messages for note in r.need_more_information)
+        if preview_only:
+            st.info('已找到相关资料。当前为预览模式，不生成排查结论或下一步判断。' if lang == 'zh'
+                    else 'Related materials are ready. Preview mode does not generate a diagnosis or decide the next step.')
+        else:
+            status(r)
         if selected_mode == MODE_LABELS[lang]['next_step']:
             st.write(r.where_you_are)
             for i, action in enumerate(r.next_actions, 1):
@@ -305,7 +481,8 @@ if active_module == 'practice':
                 st.write(f"{tr(lang, 'mistake')} {r.common_mistake}")
         else:
             categories = DIAGNOSIS_LABELS[lang]
-            st.caption(tr(lang, 'question_type') + categories.get(r.diagnosis_type, r.diagnosis_type))
+            if not preview_only:
+                st.caption(tr(lang, 'question_type') + categories.get(r.diagnosis_type, r.diagnosis_type))
             if r.possible_causes:
                 st.caption(
                     'The following are hypotheses to verify, not confirmed root causes. Check the first one before expanding others.'
@@ -318,7 +495,7 @@ if active_module == 'practice':
                     st.write(first.cause)
                     st.markdown(f"**{tr(lang, 'check')}**")
                     st.write(first.check)
-                    st.markdown(f"**{tr(lang, 'fix')}**")
+                    st.markdown('**检查确认后再修复**' if lang == 'zh' else '**Apply the fix only if the check confirms it**')
                     st.write(first.fix)
                     if first.rationale:
                         with st.expander(tr(lang, 'why_first')):
@@ -330,7 +507,7 @@ if active_module == 'practice':
                             st.write(c.cause)
                             st.markdown(f"**{tr(lang, 'check')}**")
                             st.write(c.check)
-                            st.markdown(f"**{tr(lang, 'fix')}**")
+                            st.markdown('**检查确认后再修复**' if lang == 'zh' else '**Apply the fix only if the check confirms it**')
                             st.write(c.fix)
                             if c.rationale:
                                 st.markdown(f"**{tr(lang, 'why_first')}**")
@@ -342,9 +519,18 @@ if active_module == 'practice':
                     else f"#### {tr(lang, 'verification_complete')}"
                 )
                 st.write(r.verification)
-        sources(r.evidence)
+        render_learning_sources(r.evidence, lang)
 
 if active_module == 'generate':
+    st.markdown('<div class="course-intro"><div class="course-eyebrow">PRACTICE &amp; ASSESS</div><h2>'
+                + ('把理解，变成会用。' if lang == 'zh' else 'Put your understanding into practice.')
+                + '</h2><p>' + ('从一个知识点开始，用练习检查自己的理解。' if lang == 'zh'
+                                else 'Start with a concept and check your understanding through practice.')
+                + '</p></div>', unsafe_allow_html=True)
+    if st.session_state.get('_practice_from_learning') == st.session_state.get('gen_topic') and st.session_state.get('gen_topic'):
+        st.info(('已从知识问答带入：' if lang == 'zh' else 'Topic carried over from your explanation: ') + st.session_state.gen_topic)
+        st.caption('检查下方知识点、难度和题型，再点击生成。' if lang == 'zh'
+                   else 'Review the topic, difficulty and question type, then select Generate.')
     st.caption(
         'The generated item is for learning practice, not exam prediction. Questions and explanations still need to be checked against the source material.'
         if lang == 'en'
